@@ -28,18 +28,17 @@ namespace Service.Services
         private readonly UserExtensions _userExtensions;
         private readonly IRedisService _redisService;
         private readonly ICaptchaService _captchaService;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
         public UserService(IPasswordHasher passwordHasher, IJwtProvider jwtProvider, 
-            UserExtensions userExtensions, ICaptchaService captchaService, IRedisService redisService, IUnitOfWork unitOfWork)
+            UserExtensions userExtensions, ICaptchaService captchaService, IRedisService redisService, IUserRepository userRepository)
         {
             _passwordHasher = passwordHasher;
             _jwtProvider = jwtProvider;
             _userExtensions = userExtensions;
             _captchaService = captchaService;
             _redisService = redisService;
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
         }
-
         public async Task<int> Register(string Login, string Password, string repeatPassword)
         {
             if (Password != repeatPassword)
@@ -54,28 +53,17 @@ namespace Service.Services
             {
                 throw new BadRequestException("Пароль должен содержать как заглавные, так и строчные буквы, а также цифры.");
             }
-            try
+            if (await _userRepository.FindLoginAsync(Login))
             {
-                if (await _unitOfWork.users.FindLoginAsync(Login))
-                {
-                    throw new BadRequestException("Пользователь с таким логином уже существует.");
-                }
-            
-                await _unitOfWork.BeginTransactionAsync();
-
-                var hashedPassword = _passwordHasher.Generate(Password);
-                var newUser = new User(Login, hashedPassword);
-
-                await _unitOfWork.users.AddAsync(newUser);
-                await _unitOfWork.CommitAsync();
-
-                return newUser.Id;
+                throw new BadRequestException("Пользователь с таким логином уже существует.");
             }
-            catch (Exception)
-            {
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+
+            var hashedPassword = _passwordHasher.Generate(Password);
+            var newUser = new User(Login, hashedPassword);
+
+            await _userRepository.AddAsync(newUser);
+
+            return newUser.Id;
         }
         public async Task<TokenModelRequest> Login(string Login, string Password, string CaptchaInput, string CaptchaToken)
         {
@@ -98,7 +86,7 @@ namespace Service.Services
                 throw new BadRequestException("Неккоректная каптча");
             }
 
-            var user = await _unitOfWork.users.GetByLoginAsync(Login);
+            var user = await _userRepository.GetByLoginAsync(Login);
             if (user == null)
             {
                 throw new NotFoundException("Пользователя не существует.");
@@ -109,32 +97,19 @@ namespace Service.Services
             {
                 throw new BadRequestException("Неверный пароль.");
             }
+            var refreshToken = _jwtProvider.GenerateRefreshToken();
+            var accessToken = _jwtProvider.GenerateAccessToken(user);
 
-            try
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(30);
+
+            await _userRepository.UpdateAsync(user);
+
+            return new TokenModelRequest
             {
-                await _unitOfWork.BeginTransactionAsync();
-
-                var refreshToken = _jwtProvider.GenerateRefreshToken();
-                var accessToken = _jwtProvider.GenerateAccessToken(user);
-
-                user.RefreshToken = refreshToken;
-                user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(30);
-
-                await _unitOfWork.users.UpdateAsync(user);
-                await _unitOfWork.CommitAsync();
-
-
-                return new TokenModelRequest
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = refreshToken.ToString()
-                };
-            }
-            catch (Exception)
-            {
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+                AccessToken = accessToken,
+                RefreshToken = refreshToken.ToString()
+            };
         }
         public async Task<TokenModelRequest> Refresh(string refreshToken, string accessToken)
         {
@@ -147,7 +122,7 @@ namespace Service.Services
                 throw new BadRequestException("Invalid refresh token format.");
             }
 
-            var user = await _unitOfWork.users.GetByRefreshTokenAsync(refreshTokenGuid);
+            var user = await _userRepository.GetByRefreshTokenAsync(refreshTokenGuid);
 
             if (user == null)
             {
@@ -218,7 +193,7 @@ namespace Service.Services
 
         public async Task<HashSet<PermissionEnum>> GetUserPermission(int userId)
         {
-            var userPermissions = await _unitOfWork.users.GetPermissionsAsync(userId);
+            var userPermissions = await _userRepository.GetPermissionsAsync(userId);
 
             return userPermissions.ToHashSet();
         }

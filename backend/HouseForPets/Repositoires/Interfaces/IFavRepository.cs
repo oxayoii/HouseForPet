@@ -2,7 +2,7 @@
 
 namespace Repositories.Interfaces
 {
-    public interface IFavRepository
+    public interface IFavRepository : IDisposable
     {
         Task<int> AddAsync(UserFavorite favorite);
         Task<bool> ExistsAsync(int id);

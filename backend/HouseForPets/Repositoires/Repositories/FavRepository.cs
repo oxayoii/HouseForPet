@@ -43,7 +43,6 @@ namespace Repositories.Repositories
         public async Task<int> AddAsync(UserFavorite favorite)
         {
             await _context.UserFavorites.AddAsync(favorite);
-            await _context.SaveChangesAsync();
             return favorite.Id;
         }
 
@@ -51,13 +50,31 @@ namespace Repositories.Repositories
         {
             var pet = await GetFavoriteByIdAsync(id);
             _context.UserFavorites.Remove(pet);
-            await _context.SaveChangesAsync();
             return true;
         }
 
         public async Task<bool> ExistsAsync(int id)
         {
             return await _context.UserFavorites.AnyAsync(uf => uf.Id == id);
+        }
+        private bool disposed = false;
+
+        public virtual void Dispose(bool disposing)
+        {
+            if (!this.disposed)
+            {
+                if (disposing)
+                {
+                    _context.Dispose();
+                }
+            }
+            this.disposed = true;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }

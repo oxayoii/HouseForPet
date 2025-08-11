@@ -21,12 +21,12 @@ namespace Service.Services
     {
         private readonly UserExtensions _userExtensions;
         private readonly IImageService _imageService;
-        private readonly IUnitOfWork _unitOfWork;
-        public UserFavoriteService(IUnitOfWork unitOfWork, IImageService imageService, UserExtensions userExtensions)
+        private readonly IFavRepository _favRepository;
+        public UserFavoriteService(IImageService imageService, UserExtensions userExtensions, IFavRepository favRepository)
         {
-            _unitOfWork = unitOfWork;
             _imageService = imageService;
             _userExtensions = userExtensions;
+            _favRepository = favRepository;
         }
         public async Task<ResponseFavPets> GetUserPets(string token)
         {
@@ -41,7 +41,7 @@ namespace Service.Services
             if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
                 throw new BadRequestException("Неккоректный индефикатор пользователя.");
 
-            var userFavorites = await _unitOfWork.favs.GetUserFavoritesAsync(userId);
+            var userFavorites = await _favRepository.GetUserFavoritesAsync(userId);
             var favDto = new List<FavDto>();
 
             foreach (var uf in userFavorites)
@@ -85,30 +85,20 @@ namespace Service.Services
             {
                 throw new NotFoundException("Выберите питомца.");
             }
-            var petExists = await _unitOfWork.favs.ExistsAsync(PetId);
+            var petExists = await _favRepository.ExistsAsync(PetId);
             if (!petExists)
             {
                 throw new NotFoundException("Питомец с таким ID не найден.");
             }
-            var existingFavPet = await _unitOfWork.favs.GetFavoriteByUserAndPetAsync(userId, PetId); 
+            var existingFavPet = await _favRepository.GetFavoriteByUserAndPetAsync(userId, PetId); 
 
             if (existingFavPet != null)
             {
                 throw new BadRequestException("Этот питомец уже добавлен в избранное.");
             }
-            try
-            {
-                await _unitOfWork.BeginTransactionAsync();
-                var favPet = new UserFavorite(userId, PetId);
-                await _unitOfWork.favs.AddAsync(favPet);
-                await _unitOfWork.CommitAsync();
-                return favPet.Id;
-            }
-            catch (Exception)
-            {
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+            var favPet = new UserFavorite(userId, PetId);
+            await _favRepository.AddAsync(favPet);
+            return favPet.Id;
         }
         public async Task<bool> DeleteFavPet(int id, string token)
         {
@@ -121,7 +111,7 @@ namespace Service.Services
             {
                 throw new BadRequestException("Некорректный идентификатор питомца.");
             }
-            var pet = await _unitOfWork.favs.GetFavoriteByIdAsync(id);
+            var pet = await _favRepository.GetFavoriteByIdAsync(id);
             if (pet == null)
             {
                 throw new NotFoundException("Питомец не найден.");
@@ -135,18 +125,8 @@ namespace Service.Services
             {
                 throw new UnauthorizedAccessException("У вас нет прав на удаление этого питомца.");
             }
-            try
-            {
-                await _unitOfWork.BeginTransactionAsync();
-                var result = await _unitOfWork.favs.Remove(id);
-                await _unitOfWork.CommitAsync();
-                return true;
-            }
-            catch (Exception)
-            { 
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+            var result = await _favRepository.Remove(id);
+            return true;
         }
     }
 }

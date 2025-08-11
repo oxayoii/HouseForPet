@@ -8,12 +8,10 @@ using Repositories.Interfaces;
 public class UserRepository : IUserRepository
 {
     private readonly DataBasePrimaryContext _context;
-    private readonly ILogger<UserRepository> _logger;
 
-    public UserRepository(DataBasePrimaryContext context, ILogger<UserRepository> logger)
+    public UserRepository(DataBasePrimaryContext context)
     {
         _context = context;
-        _logger = logger;
     }
 
     public async Task<User> GetByLoginAsync(string login)
@@ -34,14 +32,12 @@ public class UserRepository : IUserRepository
     public async Task<int> AddAsync(User user)
     {
         await _context.Users.AddAsync(user);
-        await _context.SaveChangesAsync();
         return user.Id;
     }
 
     public async Task UpdateAsync(User user)
     {
         _context.Users.Update(user);
-        await _context.SaveChangesAsync();
     }
 
     public async Task<bool> ExistsAsync(string login)
@@ -51,15 +47,32 @@ public class UserRepository : IUserRepository
 
     public async Task<List<PermissionEnum>> GetPermissionsAsync(int userId)
     {
-        _logger.LogInformation("Запрос прав пользователя с ID: {User Id}", userId);
 
         var permissions = await _context.UserPermissions
             .Where(x => x.UserId == userId)
             .Select(x => (PermissionEnum)x.PermissionId)
             .ToListAsync();
 
-        _logger.LogInformation("Права пользователя с ID: {User Id} получены: {PermissionsCount} прав(а)", userId, permissions.Count);
-
         return permissions;
+    }
+
+    private bool disposed = false;
+
+    public virtual void Dispose(bool disposing)
+    {
+        if (!this.disposed)
+        {
+            if (disposing)
+            {
+                _context.Dispose();
+            }
+        }
+        this.disposed = true;
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 }

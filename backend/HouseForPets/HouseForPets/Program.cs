@@ -75,7 +75,6 @@ namespace HouseForPets
             builder.Services.AddScoped<ICaptchaService, CaptchaService>();
             builder.Services.AddScoped<IRedisService, RedisService>();
             builder.Services.AddScoped<IRedisPets, RedisPets>();
-            builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
             builder.Services.AddScoped<IPetRepository, PetRepository>();
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IFavRepository, FavRepository>();

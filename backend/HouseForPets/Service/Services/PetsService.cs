@@ -14,12 +14,12 @@ namespace Service.Services
     {
         private readonly IImageService _imageService;
         private readonly IRedisPets _redisPets;
-        private readonly IUnitOfWork _unitOfWork;
-        public PetsService(IImageService imageService, IRedisPets redisPets, IUnitOfWork unitOfWork)
+        private readonly IPetRepository _petRepository;
+        public PetsService(IImageService imageService, IRedisPets redisPets, IPetRepository petRepository)
         {
             _imageService = imageService;
             _redisPets = redisPets;
-            _unitOfWork = unitOfWork;
+            _petRepository = petRepository;
         }
         public async Task<ResponsePets> GetAllPets(ResponsePetsSearch response)
         {
@@ -31,7 +31,7 @@ namespace Service.Services
                 return new ResponsePets(petsDto);
             }
 
-            var query = await _unitOfWork.pets.GetAllPetsAsync(response);
+            var query = await _petRepository.GetAllPetsAsync(response);
             petsDto = new List<PetsDTO>();
 
             foreach (var x in query)
@@ -52,105 +52,77 @@ namespace Service.Services
         }
         public async Task<int> CreatePet(string imageKey, string Name, string Age, Sex Gender, string Description)
         {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(Name) || Name.Length < 3 || Name.Length > 15)
+
+            if(string.IsNullOrWhiteSpace(Name) || Name.Length < 3 || Name.Length > 15)
                 {
-                    throw new BadRequestException("Длина имени питомца должна составлять от 2 до 15 символов.");
-                }
-                if (!int.TryParse(Age, out int AgeInt) || AgeInt <= 0 || AgeInt > 15)
-                {
-                    throw new BadRequestException("Возраст питомца должен быть от 0 до 15.");
-                }
-                if (imageKey.Length == 0)
-                {
-                    throw new BadRequestException("Выберите изображение.");
-                }
-                if (string.IsNullOrWhiteSpace(Description) || Description.Length < 10 || Description.Length > 200)
-                {
-                    throw new BadRequestException("Длина описания должна составлять от 10 до 200 символов.");
-                }
-                await _unitOfWork.BeginTransactionAsync();
-                var pet = new Pet(imageKey, Name, AgeInt, Gender, Description);
-                int petId = await _unitOfWork.pets.CreatePetAsync(pet);
-                await _unitOfWork.CommitAsync();
-                await _redisPets.InvalidateAllPetsCache();
-                return petId;
+                throw new BadRequestException("Длина имени питомца должна составлять от 2 до 15 символов.");
             }
-            catch (Exception)
+            if (!int.TryParse(Age, out int AgeInt) || AgeInt <= 0 || AgeInt > 15)
             {
-                await _unitOfWork.RollbackAsync();
-                throw;
+                throw new BadRequestException("Возраст питомца должен быть от 0 до 15.");
             }
+            if (imageKey.Length == 0)
+            {
+                throw new BadRequestException("Выберите изображение.");
+            }
+            if (string.IsNullOrWhiteSpace(Description) || Description.Length < 10 || Description.Length > 200)
+            {
+                throw new BadRequestException("Длина описания должна составлять от 10 до 200 символов.");
+            }
+            var pet = new Pet(imageKey, Name, AgeInt, Gender, Description);
+            int petId = await _petRepository.CreatePetAsync(pet);
+            await _redisPets.InvalidateAllPetsCache();
+            return petId;
+
         }
         public async Task<bool> DeletePet(int id)
         {
-            try
+            var pet = await _petRepository.GetPetByIdAsync(id);
+            if (pet == null)
             {
-                await _unitOfWork.BeginTransactionAsync();
-                var pet = await _unitOfWork.pets.GetPetByIdAsync(id);
-                if (pet == null)
-                {
-                    throw new NotFoundException("Питомец не найден.");
-                }
-                await _unitOfWork.pets.DeletePetAsync(id);
-                await _unitOfWork.CommitAsync();
-                await _redisPets.InvalidateAllPetsCache();
-                return true;
+                throw new NotFoundException("Питомец не найден.");
             }
-            catch (Exception)
-            {
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+            await _petRepository.DeletePetAsync(id);
+            await _redisPets.InvalidateAllPetsCache();
+            return true;
         }
         public async Task<bool> UpdatePet(int Id, string ImageUrl, string Name, string Age, Sex Gender, string Description)
         {
-            try
+            var pet = await _petRepository.GetPetByIdAsync(Id);
+            if (pet == null)
             {
-                await _unitOfWork.BeginTransactionAsync();
-                var pet = await _unitOfWork.pets.GetPetByIdAsync(Id);
-                if (pet == null)
-                {
-                    throw new NotFoundException("Питомец не найден.");
-                }
-                if (string.IsNullOrWhiteSpace(Name) || Name.Length < 3 || Name.Length > 10)
-                {
-                    throw new BadRequestException("Длина имени питомца должна составлять от 2 до 10 символов.");
-                }
-                if (!int.TryParse(Age, out int AgeInt) || AgeInt <= 0 || AgeInt > 15)
-                {
-                    throw new BadRequestException("Возраст питомца должен быть от 0 до 15.");
-                }
-                if (ImageUrl.Length < 1)
-                {
-                    throw new BadRequestException("Выберите изображение.");
-                }
-                if (Description.Length <= 10 && Description.Length >= 100)
-                {
-                    throw new BadRequestException("Длина описания должна составлять от 10 до 100 символов.");
-                }
-                if (!Enum.IsDefined(typeof(Sex), Gender))
-                {
-                    throw new BadRequestException("Недопустимое значение для пола питомца.");
-                }
-                pet.ImageKey = ImageUrl;
-                pet.ModifyDate = DateTime.UtcNow;
-                pet.Name = Name;
-                pet.Age = AgeInt;
-                pet.Gender = Gender;
-                pet.Description = Description;
-                bool result = await _unitOfWork.pets.UpdatePetAsync(pet);
-                await _unitOfWork.CommitAsync();
-                await _redisPets.InvalidateAllPetsCache();
+                throw new NotFoundException("Питомец не найден.");
+            }
+            if (string.IsNullOrWhiteSpace(Name) || Name.Length < 3 || Name.Length > 10)
+            {
+                throw new BadRequestException("Длина имени питомца должна составлять от 2 до 10 символов.");
+            }
+            if (!int.TryParse(Age, out int AgeInt) || AgeInt <= 0 || AgeInt > 15)
+            {
+                throw new BadRequestException("Возраст питомца должен быть от 0 до 15.");
+            }
+            if (ImageUrl.Length < 1)
+            {
+                throw new BadRequestException("Выберите изображение.");
+            }
+            if (Description.Length <= 10 && Description.Length >= 100)
+            {
+                throw new BadRequestException("Длина описания должна составлять от 10 до 100 символов.");
+            }
+            if (!Enum.IsDefined(typeof(Sex), Gender))
+            {
+                throw new BadRequestException("Недопустимое значение для пола питомца.");
+            }
+            pet.ImageKey = ImageUrl;
+            pet.ModifyDate = DateTime.UtcNow;
+            pet.Name = Name;
+            pet.Age = AgeInt;
+            pet.Gender = Gender;
+            pet.Description = Description;
+            bool result = await _petRepository.UpdatePetAsync(pet);
+            await _redisPets.InvalidateAllPetsCache();
 
-                return true;
-            }
-            catch (Exception)
-            {
-                await _unitOfWork.RollbackAsync();
-                throw;
-            }
+            return true;
         }
     }
 }

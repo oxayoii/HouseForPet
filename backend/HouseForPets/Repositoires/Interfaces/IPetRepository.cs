@@ -3,7 +3,7 @@ using HouseForPet.DataBaseContext.Models.Pets;
 
 namespace Repositories.Interfaces
 {
-    public interface IPetRepository
+    public interface IPetRepository : IDisposable
     {
         Task<int> CreatePetAsync(Pet pet);
         Task<bool> DeletePetAsync(int id);
