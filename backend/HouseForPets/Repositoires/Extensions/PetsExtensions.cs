@@ -1,7 +1,6 @@
 ﻿
 using DataBaseContext.Dto.RequestModel;
 using HouseForPet.DataBaseContext.Models.Pets;
-using Microsoft.AspNetCore.Http.HttpResults;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,7 +9,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
-using static Service.Middleware.CustomException;
 
 namespace HouseForPet.Service
 {
@@ -39,14 +37,6 @@ namespace HouseForPet.Service
                 ? query.OrderByDescending(selectorKey) : query.OrderBy(selectorKey);
             return query;
         }
-        public static Sex ConvertToGender(string gender)
-        {
-            return gender switch
-            {
-                "М" => Sex.M,
-                "Ж" => Sex.W,
-                _ => throw new BadRequestException("Неизвестное значение пола")
-            };
-        }
+       
     }
 }

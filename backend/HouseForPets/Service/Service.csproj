@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataBasePrimaryContext\DataBaseContext.csproj" />
+    <ProjectReference Include="..\Repositoires\Repositoires.csproj" />
   </ItemGroup>
 
 </Project>

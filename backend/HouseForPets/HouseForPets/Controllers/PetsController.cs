@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Service.interfaces;
 using Service.Services;
+using Service.Extensions;
 
 namespace HouseForPets.API.Controllers
 {
@@ -29,7 +30,7 @@ namespace HouseForPets.API.Controllers
         [HttpPost]
         public async Task<ActionResult<int>> Create([FromBody] RequestPets response)
         {
-            var petId = await _petsService.CreatePet(response.ImageUrl, response.Name, response.Age.ToString(), PetsExtensions.ConvertToGender(response.Gender), response.Description);
+            var petId = await _petsService.CreatePet(response.ImageUrl, response.Name, response.Age.ToString(), ConvertToGenderPets.ConvertToGender(response.Gender), response.Description);
             return Ok(petId);
         }
         [Authorize(Policy = "Delete")]
@@ -43,7 +44,7 @@ namespace HouseForPets.API.Controllers
         [HttpPut("{id:int}")]
         public async Task<ActionResult<int>> Update(int id, [FromBody] RequestPets response)
         {
-            bool result = await _petsService.UpdatePet(id, response.ImageUrl, response.Name, response.Age.ToString(), PetsExtensions.ConvertToGender(response.Gender), response.Description);
+            bool result = await _petsService.UpdatePet(id, response.ImageUrl, response.Name, response.Age.ToString(), ConvertToGenderPets.ConvertToGender(response.Gender), response.Description);
             return Ok(result);
         }
     }

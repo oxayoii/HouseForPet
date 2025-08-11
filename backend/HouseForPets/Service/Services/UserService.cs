@@ -5,6 +5,8 @@ using DataBaseContext.Models;
 using HouseForPet.DataBaseContext.Models.Pets;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Repositories.Interfaces;
+using Repositories.Repositories;
 using Service.Extensions;
 using Service.interfaces;
 using Service.interfaces.AuthInterfaces;
@@ -21,21 +23,21 @@ namespace Service.Services
 {
     public class UserService : IUserService
     {
-        private readonly DataBasePrimaryContext _context;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtProvider _jwtProvider;
         private readonly UserExtensions _userExtensions;
         private readonly IRedisService _redisService;
         private readonly ICaptchaService _captchaService;
-        public UserService(DataBasePrimaryContext context, IPasswordHasher passwordHasher, IJwtProvider jwtProvider, 
-            UserExtensions userExtensions, ICaptchaService captchaService, IRedisService redisService)
+        private readonly IUnitOfWork _unitOfWork;
+        public UserService(IPasswordHasher passwordHasher, IJwtProvider jwtProvider, 
+            UserExtensions userExtensions, ICaptchaService captchaService, IRedisService redisService, IUnitOfWork unitOfWork)
         {
-            _context = context;
             _passwordHasher = passwordHasher;
             _jwtProvider = jwtProvider;
             _userExtensions = userExtensions;
             _captchaService = captchaService;
             _redisService = redisService;
+            _unitOfWork = unitOfWork;
         }
 
         public async Task<int> Register(string Login, string Password, string repeatPassword)
@@ -52,60 +54,87 @@ namespace Service.Services
             {
                 throw new BadRequestException("Пароль должен содержать как заглавные, так и строчные буквы, а также цифры.");
             }
-            if (await _context.Users.AnyAsync(x => x.Login == Login))
+            try
             {
-                throw new BadRequestException("Пользователь с таким логином уже существует.");
-            }
-            var hashedPassword = _passwordHasher.Generate(Password);
-            var newUser = new User(Login, hashedPassword);
+                if (await _unitOfWork.users.FindLoginAsync(Login))
+                {
+                    throw new BadRequestException("Пользователь с таким логином уже существует.");
+                }
+            
+                await _unitOfWork.BeginTransactionAsync();
 
-            await _context.Users.AddAsync(newUser);
-            await _context.SaveChangesAsync();
-            return newUser.Id;
+                var hashedPassword = _passwordHasher.Generate(Password);
+                var newUser = new User(Login, hashedPassword);
+
+                await _unitOfWork.users.AddAsync(newUser);
+                await _unitOfWork.CommitAsync();
+
+                return newUser.Id;
+            }
+            catch (Exception)
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
         }
         public async Task<TokenModelRequest> Login(string Login, string Password, string CaptchaInput, string CaptchaToken)
         {
             var requestKey = $"login_requests:{Login}";
             var blockKey = $"login_blocked:{Login}";
 
-            if (_redisService.IsUserBlocked(blockKey)) //вот тут пишет ошибку что типо null
+            if (_redisService.IsUserBlocked(blockKey))
             {
                 throw new BadRequestException("Вы заблокированы на 5 минут за слишком много попыток входа. Попробуйте позже.");
             }
-            if (!_redisService.IsRequestAllowed(requestKey, 5, TimeSpan.FromMinutes(1))) 
+            if (!_redisService.IsRequestAllowed(requestKey, 5, TimeSpan.FromMinutes(1)))
             {
                 _redisService.BlockUser(blockKey, TimeSpan.FromMinutes(5));
                 throw new BadRequestException("Слишком много запросов. Вы заблокированы на 5 минут.");
             }
-            bool isCaptchaValid = await _captchaService.ValidateCaptchaAsync(CaptchaToken, CaptchaInput);
 
+            bool isCaptchaValid = await _captchaService.ValidateCaptchaAsync(CaptchaToken, CaptchaInput);
             if (!isCaptchaValid)
             {
                 throw new BadRequestException("Неккоректная каптча");
             }
-            var user = _context.Users.FirstOrDefault(x => x.Login == Login);
+
+            var user = await _unitOfWork.users.GetByLoginAsync(Login);
             if (user == null)
             {
                 throw new NotFoundException("Пользователя не существует.");
             }
+
             var result = _passwordHasher.Verify(Password, user.PasswordHash);
             if (!result)
             {
                 throw new BadRequestException("Неверный пароль.");
             }
-            var RefreshToken = _jwtProvider.GenerateRefreshToken();
-            var AccessToken = _jwtProvider.GenerateAccessToken(user);
-           
-            user.RefreshToken = RefreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(30); 
-            _context.Users.Update(user);
-            _context.SaveChanges();
 
-            return (new TokenModelRequest
+            try
             {
-                AccessToken = AccessToken,
-                RefreshToken = RefreshToken.ToString()
-            });
+                await _unitOfWork.BeginTransactionAsync();
+
+                var refreshToken = _jwtProvider.GenerateRefreshToken();
+                var accessToken = _jwtProvider.GenerateAccessToken(user);
+
+                user.RefreshToken = refreshToken;
+                user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(30);
+
+                await _unitOfWork.users.UpdateAsync(user);
+                await _unitOfWork.CommitAsync();
+
+
+                return new TokenModelRequest
+                {
+                    AccessToken = accessToken,
+                    RefreshToken = refreshToken.ToString()
+                };
+            }
+            catch (Exception)
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
         }
         public async Task<TokenModelRequest> Refresh(string refreshToken, string accessToken)
         {
@@ -118,7 +147,7 @@ namespace Service.Services
                 throw new BadRequestException("Invalid refresh token format.");
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshTokenGuid);
+            var user = await _unitOfWork.users.GetByRefreshTokenAsync(refreshTokenGuid);
 
             if (user == null)
             {
@@ -165,28 +194,33 @@ namespace Service.Services
             {
                 throw new BadRequestException("Токен не может быть пустым.");
             }
+
             var principal = _userExtensions.GetPrincipalFromExpiredToken(token);
             if (principal == null)
             {
-                throw new BadRequestException("Неккоректный токен");
+                throw new BadRequestException("Некорректный токен.");
             }
+
             var userIdClaim = principal.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
             if (userIdClaim == null || !int.TryParse(userIdClaim, out int userId))
             {
-                throw new BadRequestException("Неккоректный индефикатор пользователя.");
+                throw new BadRequestException("Некорректный идентификатор пользователя.");
             }
+
             if (userId <= 0)
             {
                 throw new BadRequestException("Некорректный идентификатор пользователя.");
             }
+
             var permissions = await GetUserPermission(userId);
             return permissions;
         }
+
         public async Task<HashSet<PermissionEnum>> GetUserPermission(int userId)
         {
-            var permissons = await _context.UserPermissions.Where(x => x.UserId == userId)
-                .Select(x => x.Permission).ToListAsync();
-            return permissons.Select(x => (PermissionEnum)x.Id).ToHashSet();
+            var userPermissions = await _unitOfWork.users.GetPermissionsAsync(userId);
+
+            return userPermissions.ToHashSet();
         }
     }
 }

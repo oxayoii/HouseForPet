@@ -10,6 +10,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Repositories;
+using Repositories.Interfaces;
+using Repositories.Repositories;
 using Service;
 using Service.Auth;
 using Service.Extensions;
@@ -72,6 +75,10 @@ namespace HouseForPets
             builder.Services.AddScoped<ICaptchaService, CaptchaService>();
             builder.Services.AddScoped<IRedisService, RedisService>();
             builder.Services.AddScoped<IRedisPets, RedisPets>();
+            builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+            builder.Services.AddScoped<IPetRepository, PetRepository>();
+            builder.Services.AddScoped<IUserRepository, UserRepository>();
+            builder.Services.AddScoped<IFavRepository, FavRepository>();
 
             builder.Services.AddSingleton<IConnectionMultiplexer>(provider =>
             {
